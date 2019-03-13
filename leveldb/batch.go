@@ -347,3 +347,23 @@ func writeBatchesWithHeader(wr io.Writer, batches []*Batch, seq uint64) error {
 	}
 	return nil
 }
+
+type KeyValuePair struct {
+	Key   []byte
+	Value []byte
+}
+
+func (b *Batch) ParseKVsInBatch() []KeyValuePair {
+	KV := make([]KeyValuePair, len(b.index))
+	for i := 0; i < len(b.index); i++ {
+		key := b.index[i].k(b.data)
+		value := b.index[i].v(b.data)
+		keyCopy := make([]byte, len(key))
+		valueCopy := make([]byte, len(value))
+		copy(keyCopy, key)
+		copy(valueCopy, value)
+		KV[i].Key = keyCopy
+		KV[i].Value = valueCopy
+	}
+	return KV
+}
