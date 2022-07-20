@@ -122,9 +122,11 @@ func (tr *Transaction) put(kt keyType, key, value []byte) error {
 			return err
 		}
 	}
+	mt := time.Now()
 	if err := tr.mem.Put(tr.ikScratch, value); err != nil {
 		return err
 	}
+	tr.db.memTime += time.Since(mt).Seconds()
 	tr.seq++
 	return nil
 }

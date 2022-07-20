@@ -7,8 +7,9 @@ import (
 
 type iStorage struct {
 	storage.Storage
-	read  uint64
-	write uint64
+	read   uint64
+	write  uint64
+	iotime uint64
 }
 
 func (c *iStorage) Open(fd storage.FileDesc) (storage.Reader, error) {
@@ -29,9 +30,13 @@ func (c *iStorage) writes() uint64 {
 	return atomic.LoadUint64(&c.write)
 }
 
+func (c *iStorage) iotimes() uint64 {
+	return atomic.LoadUint64(&c.iotime)
+}
+
 // newIStorage returns the given storage wrapped by iStorage.
 func newIStorage(s storage.Storage) *iStorage {
-	return &iStorage{s, 0, 0}
+	return &iStorage{s, 0, 0, 0}
 }
 
 type iStorageReader struct {
@@ -59,5 +64,6 @@ type iStorageWriter struct {
 func (w *iStorageWriter) Write(p []byte) (n int, err error) {
 	n, err = w.Writer.Write(p)
 	atomic.AddUint64(&w.c.write, uint64(n))
+	atomic.AddUint64(&w.c.iotime, 1)
 	return n, err
 }

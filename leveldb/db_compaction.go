@@ -187,6 +187,9 @@ func (db *DB) compactionTransact(name string, t compactionTransactInterface) {
 		err := t.run(&cnt)
 		if err != nil {
 			db.logf("%s error I·%d %q", name, cnt, err)
+			if n >= 3 {
+				panic(err)
+			}
 		}
 
 		// Set compaction error status.
@@ -348,6 +351,12 @@ func (db *DB) memCompaction() {
 
 	// Trigger table compaction.
 	db.compTrigger(db.tcompCmdC)
+	select {
+	case _ = <-db.statsTicker.C:
+		db.printStats()
+		db.statsTicker.Reset(time.Minute * 5)
+	default:
+	}
 }
 
 type tableCompactionBuilder struct {
