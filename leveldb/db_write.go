@@ -227,12 +227,15 @@ func (db *DB) writeLocked(batch, ourBatch *Batch, merge, sync bool) error {
 	// Seq number.
 	seq := db.seq + 1
 
+	jt := time.Now()
 	// Write journal.
 	if err := db.writeJournal(batches, seq, sync); err != nil {
 		db.unlockWrite(overflow, merged, err)
 		return err
 	}
+	db.journalTime += time.Since(jt).Seconds()
 
+	mt := time.Now()
 	// Put batches.
 	for _, batch := range batches {
 		if err := batch.putMem(seq, mdb.DB); err != nil {
@@ -240,13 +243,17 @@ func (db *DB) writeLocked(batch, ourBatch *Batch, merge, sync bool) error {
 		}
 		seq += uint64(batch.Len())
 	}
+	db.memTime += time.Since(mt).Seconds()
 
 	// Incr seq number.
 	db.addSeq(uint64(batchesLen(batches)))
 
 	// Rotate memdb if it's reach the threshold.
 	if batch.internalLen >= mdbFree {
-		db.rotateMem(0, false)
+		if _, err := db.rotateMem(0, false); err != nil {
+			db.unlockWrite(overflow, merged, err)
+			return err
+		}
 	}
 
 	db.unlockWrite(overflow, merged, nil)

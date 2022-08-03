@@ -12,6 +12,7 @@ import (
 	"io"
 	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/syndtr/goleveldb/leveldb/filter"
 	"github.com/syndtr/goleveldb/leveldb/opt"
@@ -161,18 +162,6 @@ func (h *dbCorruptHarness) corrupt(ft storage.FileType, fi, offset, n int) {
 		t.Fatal("cannot write new file: ", err)
 	}
 	w.Close()
-}
-
-func (h *dbCorruptHarness) removeAll(ft storage.FileType) {
-	fds, err := h.stor.List(ft)
-	if err != nil {
-		h.t.Fatal("get files: ", err)
-	}
-	for _, fd := range fds {
-		if err := h.stor.Remove(fd); err != nil {
-			h.t.Error("remove file: ", err)
-		}
-	}
 }
 
 func (h *dbCorruptHarness) forceRemoveAll(ft storage.FileType) {
@@ -481,6 +470,7 @@ func TestCorruptDB_RecoverTable(t *testing.T) {
 	h.compactRangeAt(0, "", "")
 	h.compactRangeAt(1, "", "")
 	seq := h.db.seq
+	time.Sleep(100 * time.Millisecond) // Wait lazy reference finish tasks
 	h.closeDB()
 	h.corrupt(storage.TypeTable, 0, 1000, 1)
 	h.corrupt(storage.TypeTable, 3, 10000, 1)

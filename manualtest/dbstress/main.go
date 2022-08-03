@@ -17,10 +17,12 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/errors"
+	"github.com/syndtr/goleveldb/leveldb/filter"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/storage"
 	"github.com/syndtr/goleveldb/leveldb/table"
@@ -38,6 +40,7 @@ var (
 	enableBlockCache       = false
 	enableCompression      = false
 	enableBufferPool       = false
+	maxManifestFileSize    = opt.DefaultMaxManifestFileSize
 
 	wg         = new(sync.WaitGroup)
 	done, fail uint32
@@ -85,6 +88,7 @@ func init() {
 	flag.BoolVar(&enableBufferPool, "enablebufferpool", enableBufferPool, "enable buffer pool")
 	flag.BoolVar(&enableBlockCache, "enableblockcache", enableBlockCache, "enable block cache")
 	flag.BoolVar(&enableCompression, "enablecompression", enableCompression, "enable block compression")
+	flag.Int64Var(&maxManifestFileSize, "maxManifestFileSize", maxManifestFileSize, "max manifest file size")
 }
 
 func randomData(dst []byte, ns, prefix byte, i uint32, dataLen int) []byte {
@@ -151,28 +155,28 @@ type testingStorage struct {
 	storage.Storage
 }
 
-func (ts *testingStorage) scanTable(fd storage.FileDesc, checksum bool) (corrupted bool) {
+func (ts *testingStorage) scanTable(fd storage.FileDesc, checksum bool) (corrupted bool, err error) {
 	r, err := ts.Open(fd)
 	if err != nil {
-		log.Fatal(err)
+		return false, err
 	}
 	defer r.Close()
 
 	size, err := r.Seek(0, os.SEEK_END)
 	if err != nil {
-		log.Fatal(err)
+		return false, err
 	}
 
 	o := &opt.Options{
 		DisableLargeBatchTransaction: true,
-		Strict: opt.NoStrict,
+		Strict:                       opt.NoStrict,
 	}
 	if checksum {
 		o.Strict = opt.StrictBlockChecksum | opt.StrictReader
 	}
 	tr, err := table.NewReader(r, size, fd, nil, bpool, o)
 	if err != nil {
-		log.Fatal(err)
+		return false, err
 	}
 	defer tr.Release()
 
@@ -207,13 +211,13 @@ func (ts *testingStorage) scanTable(fd storage.FileDesc, checksum bool) (corrupt
 			corrupted = true
 
 			log.Printf("FATAL: [%v] Corrupted ikey i=%d: %v", fd, i, kerr)
-			return
+			return corrupted, nil
 		}
 		if checkData(i, "key", ukey) {
-			return
+			return corrupted, nil
 		}
 		if kt == ktVal && checkData(i, "value", iter.Value()) {
-			return
+			return corrupted, nil
 		}
 	}
 	if err := iter.Error(); err != nil {
@@ -224,11 +228,11 @@ func (ts *testingStorage) scanTable(fd storage.FileDesc, checksum bool) (corrupt
 
 			log.Printf("FATAL: [%v] Corruption detected: %v", fd, err)
 		} else {
-			log.Fatal(err)
+			return false, err
 		}
 	}
 
-	return
+	return corrupted, nil
 }
 
 func (ts *testingStorage) Remove(fd storage.FileDesc) error {
@@ -237,7 +241,11 @@ func (ts *testingStorage) Remove(fd storage.FileDesc) error {
 	}
 
 	if fd.Type == storage.TypeTable {
-		if ts.scanTable(fd, true) {
+		corrupted, err := ts.scanTable(fd, true)
+		if err != nil {
+			return err
+		}
+		if corrupted {
 			return nil
 		}
 	}
@@ -258,7 +266,7 @@ func (s *latencyStats) record(n int) {
 	if s.mark.IsZero() {
 		panic("not started")
 	}
-	dur := time.Now().Sub(s.mark)
+	dur := time.Since(s.mark)
 	dur1 := dur / time.Duration(n)
 	if dur1 < s.min || s.min == 0 {
 		s.min = dur1
@@ -333,7 +341,10 @@ func main() {
 			cerr := err.(*errors.ErrCorrupted)
 			if !cerr.Fd.Zero() && cerr.Fd.Type == storage.TypeTable {
 				log.Print("FATAL: corruption detected, scanning...")
-				if !tstor.scanTable(storage.FileDesc{Type: storage.TypeTable, Num: cerr.Fd.Num}, false) {
+				corrupted, serr := tstor.scanTable(storage.FileDesc{Type: storage.TypeTable, Num: cerr.Fd.Num}, false)
+				if serr != nil {
+					log.Printf("FATAL: unable to scan table %v", serr)
+				} else if !corrupted {
 					log.Printf("FATAL: unable to find corrupted key/value pair in table %v", cerr.Fd)
 				}
 			}
@@ -350,6 +361,8 @@ func main() {
 		DisableBlockCache:      !enableBlockCache,
 		ErrorIfExist:           true,
 		Compression:            opt.NoCompression,
+		Filter:                 filter.NewBloomFilter(10),
+		MaxManifestFileSize:    maxManifestFileSize,
 	}
 	if enableCompression {
 		o.Compression = opt.DefaultCompression
@@ -357,7 +370,7 @@ func main() {
 
 	db, err := leveldb.Open(tstor, o)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(err) // nolint: gocritic
 	}
 	defer db.Close()
 
@@ -408,7 +421,7 @@ func main() {
 
 			log.Print("------------------------")
 
-			log.Printf("> Elapsed=%v", time.Now().Sub(startTime))
+			log.Printf("> Elapsed=%v", time.Since(startTime))
 			mu.Lock()
 			log.Printf("> GetLatencyMin=%v GetLatencyMax=%v GetLatencyAvg=%v GetRatePerSec=%d",
 				gGetStat.min, gGetStat.max, gGetStat.avg(), gGetStat.ratePerSec())
@@ -427,8 +440,9 @@ func main() {
 			blockpool, _ := db.GetProperty("leveldb.blockpool")
 			writeDelay, _ := db.GetProperty("leveldb.writedelay")
 			ioStats, _ := db.GetProperty("leveldb.iostats")
-			log.Printf("> BlockCache=%s OpenedTables=%s AliveSnaps=%s AliveIter=%s BlockPool=%q WriteDelay=%q IOStats=%q",
-				cachedblock, openedtables, alivesnaps, aliveiters, blockpool, writeDelay, ioStats)
+			compCount, _ := db.GetProperty("leveldb.compcount")
+			log.Printf("> BlockCache=%s OpenedTables=%s AliveSnaps=%s AliveIter=%s BlockPool=%q WriteDelay=%q IOStats=%q CompCount=%q",
+				cachedblock, openedtables, alivesnaps, aliveiters, blockpool, writeDelay, ioStats, compCount)
 			log.Print("------------------------")
 		}
 	}()
@@ -609,7 +623,7 @@ func main() {
 						} else {
 							writeAckAck <- struct{}{}
 						}
-						log.Printf("[%02d] SCANNER #%d Deleted=%d Time=%v", ns, i, delB.Len(), time.Now().Sub(t))
+						log.Printf("[%02d] SCANNER #%d Deleted=%d Time=%v", ns, i, delB.Len(), time.Since(t))
 					}
 
 					i++
@@ -619,8 +633,8 @@ func main() {
 	}
 
 	go func() {
-		sig := make(chan os.Signal)
-		signal.Notify(sig, os.Interrupt, os.Kill)
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 		log.Printf("Got signal: %v, exiting...", <-sig)
 		atomic.StoreUint32(&done, 1)
 	}()
