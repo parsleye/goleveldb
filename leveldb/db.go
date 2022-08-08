@@ -1300,10 +1300,10 @@ func (db *DB) FlushL0(batch *Batch) error {
 	flush := func() (retry bool) {
 		tLen := db.s.tLen(0)
 		switch {
-		case tLen >= db.s.o.WriteL0SlowdownTrigger && !delayed:
+		case tLen >= db.s.o.GetWriteL0SlowdownTrigger() && !delayed:
 			delayed = true
 			time.Sleep(time.Millisecond)
-		case tLen >= db.s.o.WriteL0PauseTrigger:
+		case tLen >= db.s.o.GetWriteL0PauseTrigger():
 			delayed = true
 			atomic.StoreInt32(&db.inWritePaused, 1)
 			err := db.compTriggerWait(db.tcompCmdC)
