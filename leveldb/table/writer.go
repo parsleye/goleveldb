@@ -258,6 +258,7 @@ func (w *Writer) Append(key, value []byte) error {
 		return w.err
 	}
 
+	//fmt.Printf("append %v \n", key)
 	if err := w.flushPendingBH(key); err != nil {
 		return err
 	}

@@ -12,7 +12,6 @@ import (
 	"io"
 	"math/rand"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -666,15 +665,18 @@ func NewStorage() *Storage {
 	if storageUseFS {
 		for {
 			storageMu.Lock()
-			num := storageNum
+			//num := storageNum
 			storageNum++
 			storageMu.Unlock()
-			path = filepath.Join(os.TempDir(), fmt.Sprintf("goleveldb-test%d0%d0%d", os.Getuid(), os.Getpid(), num))
-			if _, err := os.Stat(path); os.IsNotExist(err) {
-				stor, err = storage.OpenFile(path, false)
-				ExpectWithOffset(1, err).NotTo(HaveOccurred(), "creating storage at %s", path)
-				break
-			}
+			//path = filepath.Join(os.TempDir(), fmt.Sprintf("goleveldb-test%d0%d0%d", os.Getuid(), os.Getpid(), num))
+			path := "testdb"
+			stor, _ = storage.OpenFile(path, false)
+			break
+			//if _, err := os.Stat(path); os.IsNotExist(err) {
+			//	stor, err = storage.OpenFile(path, false)
+			//	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "creating storage at %s", path)
+			//	break
+			//}
 		}
 	} else {
 		stor = storage.NewMemStorage()

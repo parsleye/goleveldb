@@ -12,6 +12,10 @@ import (
 	"testing"
 )
 
+func TestAlign(t *testing.T) {
+
+}
+
 type harness struct {
 	t *testing.T
 

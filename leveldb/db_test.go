@@ -12,6 +12,7 @@ import (
 	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -34,6 +35,58 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/testutil"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
+
+type cmp struct {
+}
+
+func (c *cmp) Compare(a, b []byte) int {
+	return bytes.Compare(a, b)
+}
+
+func (c *cmp) Name() string {
+	return "test"
+}
+
+func (c *cmp) Separator(dst, a, b []byte) []byte {
+	return nil
+}
+
+func (c *cmp) Successor(dst, b []byte) []byte {
+	return nil
+}
+
+func TestS(t *testing.T) {
+	for i := 11; i >= 0; i-- {
+		key := []byte(fmt.Sprintf("1-%020d", i))
+		t.Log(string(key))
+	}
+	t.Log(uint64(math.MaxUint64))
+}
+
+func TestDD(t *testing.T) {
+	_ = os.RemoveAll("testdb")
+	db, err := OpenFile("testdb", &opt.Options{
+		//Comparer: new(cmp),
+		NoSync:              true,
+		CompactionTableSize: 8 << 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t1 := time.Now()
+	for j := 0; j < 3; j++ {
+		for i := 0; i < 1000000; i++ {
+			//buf := make([]byte)
+			key := []byte(fmt.Sprintf("%d-%020d", j, i))
+			value := make([]byte, 128)
+			rand.Read(value)
+			db.Put(key, value, nil)
+		}
+	}
+
+	t.Log(time.Since(t1).Seconds())
+	db.Close()
+}
 
 func tkey(i int) []byte {
 	return []byte(fmt.Sprintf("%016d", i))
@@ -824,7 +877,6 @@ func TestDB_IterMultiWithDelete(t *testing.T) {
 		h.get("b", false)
 
 		iter := h.db.NewIterator(nil, nil)
-		iter.Seek([]byte("c"))
 		testKeyVal(t, iter, "c->vc")
 		iter.Prev()
 		testKeyVal(t, iter, "a->va")
@@ -833,7 +885,10 @@ func TestDB_IterMultiWithDelete(t *testing.T) {
 		h.compactMem()
 
 		iter = h.db.NewIterator(nil, nil)
+		iter.Seek([]byte("d"))
+
 		iter.Seek([]byte("c"))
+
 		testKeyVal(t, iter, "c->vc")
 		iter.Prev()
 		testKeyVal(t, iter, "a->va")
@@ -1464,6 +1519,7 @@ func TestDB_L0_CompactionBug_Issue44_b(t *testing.T) {
 }
 
 func TestDB_SingleEntryMemCompaction(t *testing.T) {
+	fmt.Println("#")
 	trun(t, func(h *dbHarness) {
 		for i := 0; i < 10; i++ {
 			h.put("big", strings.Repeat("v", opt.DefaultWriteBuffer))
@@ -1476,6 +1532,7 @@ func TestDB_SingleEntryMemCompaction(t *testing.T) {
 			h.compactMem()
 			h.put("verybig", strings.Repeat("v", opt.DefaultWriteBuffer*2))
 			h.compactMem()
+			h.compactRangeAt(0, "", "")
 		}
 	})
 }

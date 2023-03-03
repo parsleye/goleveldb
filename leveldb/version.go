@@ -53,6 +53,7 @@ func (v *version) incref() {
 		panic("already released")
 	}
 
+	// todo: from get
 	v.ref++
 	if v.ref == 1 {
 		select {
