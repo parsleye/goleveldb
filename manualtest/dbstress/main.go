@@ -34,7 +34,7 @@ var (
 	openFilesCacheCapacity = 500
 	keyLen                 = 63
 	valueLen               = 256
-	numKeys                = arrayInt{100000, 1332, 531, 1234, 9553, 1024, 35743}
+	numKeys                = arrayInt{100}
 	httpProf               = "127.0.0.1:5454"
 	transactionProb        = 0.5
 	enableBlockCache       = false

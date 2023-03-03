@@ -350,7 +350,9 @@ type tOps struct {
 	evictRemoved bool
 	fileCache    *cache.Cache
 	blockCache   *cache.Cache
-	blockBuffer  *util.BufferPool
+	indexCache   *cache.Cache
+
+	blockBuffer *util.BufferPool
 }
 
 // Creates an empty table and returns table writer.
@@ -413,9 +415,12 @@ func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
 		if t.blockCache != nil {
 			blockCache = &cache.NamespaceGetter{Cache: t.blockCache, NS: uint64(f.fd.Num)}
 		}
-
+		var indexCace *cache.NamespaceGetter
+		if t.indexCache != nil {
+			indexCace = &cache.NamespaceGetter{Cache: t.indexCache, NS: uint64(f.fd.Num)}
+		}
 		var tr *table.Reader
-		tr, err = table.NewReader(r, f.size, f.fd, blockCache, t.blockBuffer, t.s.o.Options)
+		tr, err = table.NewReader(r, f.size, f.fd, blockCache, indexCace, t.blockBuffer, t.s.o.Options)
 		if err != nil {
 			_ = r.Close()
 			return 0, nil
@@ -502,6 +507,7 @@ func newTableOps(s *session) *tOps {
 	var (
 		fileCacher  cache.Cacher
 		blockCache  *cache.Cache
+		indexCache  *cache.Cache
 		blockBuffer *util.BufferPool
 	)
 	if s.o.GetOpenFilesCacheCapacity() > 0 {
@@ -509,10 +515,13 @@ func newTableOps(s *session) *tOps {
 	}
 	if !s.o.GetDisableBlockCache() {
 		var blockCacher cache.Cacher
+		var indexCacher cache.Cacher
 		if s.o.GetBlockCacheCapacity() > 0 {
 			blockCacher = s.o.GetBlockCacher().New(s.o.GetBlockCacheCapacity())
+			indexCacher = s.o.GetBlockCacher().New(s.o.GetBlockCacheCapacity())
 		}
 		blockCache = cache.NewCache(blockCacher)
+		indexCache = cache.NewCache(indexCacher)
 	}
 	if !s.o.GetDisableBufferPool() {
 		blockBuffer = util.NewBufferPool(s.o.GetBlockSize() + 5)
@@ -523,6 +532,7 @@ func newTableOps(s *session) *tOps {
 		evictRemoved: s.o.GetBlockCacheEvictRemoved(),
 		fileCache:    cache.NewCache(fileCacher),
 		blockCache:   blockCache,
+		indexCache:   indexCache,
 		blockBuffer:  blockBuffer,
 	}
 }

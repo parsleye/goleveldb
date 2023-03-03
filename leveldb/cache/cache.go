@@ -8,6 +8,7 @@
 package cache
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -357,6 +358,10 @@ type Stats struct {
 	MissCount   int64
 	SetCount    int64
 	DelCount    int64
+}
+
+func (s Stats) String() (res string) {
+	return fmt.Sprintf("cache size: %d, item: %d, hit: %d, miss: %d", s.Size, s.Nodes, s.HitCount, s.MissCount)
 }
 
 // Cache is a 'cache map'.

@@ -153,6 +153,7 @@ func openDB(s *session) (*DB, error) {
 	// Doesn't need to be included in the wait group.
 	go db.compactionError()
 	go db.mpoolDrain()
+	go db.metering()
 
 	if readOnly {
 		if err := db.SetReadOnly(); err != nil {
@@ -386,7 +387,7 @@ func recoverTable(s *session, o *opt.Options) error {
 			tgoodKey, tcorruptedKey, tcorruptedBlock int
 			imin, imax                               []byte
 		)
-		tr, err := table.NewReader(reader, size, fd, nil, bpool, o)
+		tr, err := table.NewReader(reader, size, fd, nil, nil, bpool, o)
 		if err != nil {
 			return err
 		}
@@ -1050,6 +1051,11 @@ func (db *DB) GetProperty(name string) (value string, err error) {
 			size += tables.size()
 		}
 		value = fmt.Sprintf("write amp: %.2f", (float64(db.s.stor.writes())/1048576.0)/float64(size/1048576.0))
+	case p == "cache":
+		bc := v.s.tops.blockCache.GetStats().String()
+		ic := v.s.tops.indexCache.GetStats().String()
+		fc := v.s.tops.fileCache.GetStats().String()
+		value = fmt.Sprintf("block cache stats: %s\nindex cache stats: %s\nfile cache stats: %s\n", bc, ic, fc)
 	default:
 		err = ErrNotFound
 	}
@@ -1249,6 +1255,18 @@ func (db *DB) Close() error {
 	return err
 }
 
+func (db *DB) metering() {
+	ticker := time.NewTicker(time.Second * 10)
+	for {
+		select {
+		case <-ticker.C:
+			db.printStats()
+		case <-db.closeC:
+			return
+		}
+	}
+}
+
 func (db *DB) printStats() {
 	db.s.logf("--------------- DB Stats ---------------")
 	for _, name := range []string{
@@ -1261,6 +1279,7 @@ func (db *DB) printStats() {
 		"leveldb.cachedblock",
 		"leveldb.openedtables",
 		"leveldb.writeamp",
+		"leveldb.cache",
 	} {
 		s, _ := db.GetProperty(name)
 		db.s.logf(s)
