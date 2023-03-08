@@ -79,7 +79,7 @@ func (r *lru) SetCapacity(capacity int) {
 	}
 }
 
-func (r *lru) Promote(n *Node) {
+func (r *lru) Promote(n *Node, rr *Cache) {
 	var evicted []*lruNode
 
 	r.mu.Lock()

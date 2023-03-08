@@ -153,7 +153,19 @@ func openDB(s *session) (*DB, error) {
 	// Doesn't need to be included in the wait group.
 	go db.compactionError()
 	go db.mpoolDrain()
-
+	go func() {
+		ticker := time.NewTicker(time.Second * 10)
+		<-ticker.C
+		for {
+			select {
+			case <-ticker.C:
+				stats := db.s.tops.blockCache.GetStats()
+				s.logf("<cache stats> size :%s, total: %d, data block :%d, index block: %d, filter block: %d", shortenb(int64(stats.Size)), stats.Nodes, stats.DataBlock, stats.IndexBlock, stats.FilterBlock)
+			case <-db.closeC:
+				return
+			}
+		}
+	}()
 	if readOnly {
 		if err := db.SetReadOnly(); err != nil {
 			return nil, err

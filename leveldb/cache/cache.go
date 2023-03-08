@@ -26,7 +26,7 @@ type Cacher interface {
 	SetCapacity(capacity int)
 
 	// Promote promotes the 'cache node'.
-	Promote(n *Node)
+	Promote(n *Node, r *Cache)
 
 	// Ban evicts the 'cache node' and prevent subsequent 'promote'.
 	Ban(n *Node)
@@ -214,7 +214,7 @@ func (b *mBucket) delete(r *Cache, h *mHead, hash uint32, ns, key uint64) (done,
 				if r, ok := n.value.(util.Releaser); ok {
 					r.Release()
 				}
-				n.value = nil
+				//n.value = nil
 			}
 
 			// Remove node from bucket.
@@ -357,6 +357,10 @@ type Stats struct {
 	MissCount   int64
 	SetCount    int64
 	DelCount    int64
+
+	DataBlock   int64
+	IndexBlock  int64
+	FilterBlock int64
 }
 
 // Cache is a 'cache map'.
@@ -374,6 +378,12 @@ type Cache struct {
 	statMiss   int64
 	statSet    int64
 	statDel    int64
+
+	dataBlock   int64
+	indexBlock  int64
+	filterBlock int64
+
+	BlockCache bool
 }
 
 // NewCache creates a new 'cache map'. The cacher is optional and
@@ -433,6 +443,9 @@ func (r *Cache) GetStats() Stats {
 		MissCount:   atomic.LoadInt64(&r.statMiss),
 		SetCount:    atomic.LoadInt64(&r.statSet),
 		DelCount:    atomic.LoadInt64(&r.statDel),
+		DataBlock:   atomic.LoadInt64(&r.dataBlock),
+		IndexBlock:  atomic.LoadInt64(&r.indexBlock),
+		FilterBlock: atomic.LoadInt64(&r.filterBlock),
 	}
 }
 
@@ -459,6 +472,10 @@ func (r *Cache) SetCapacity(capacity int) {
 	if r.cacher != nil {
 		r.cacher.SetCapacity(capacity)
 	}
+}
+
+type Getter interface {
+	GetType() string
 }
 
 // Get gets 'cache node' with the given namespace and key.
@@ -501,12 +518,28 @@ func (r *Cache) Get(ns, key uint64, setFunc func() (size int, value Value)) *Han
 						n.unRefInternal(false)
 						return nil
 					}
+					if r.BlockCache {
+						if g, ok := n.value.(Getter); ok {
+							switch g.GetType() {
+							case "data":
+								//fmt.Printf("put data block: %d\n", atomic.AddInt64(&r.dataBlock, 1))
+								atomic.AddInt64(&r.dataBlock, 1)
+							case "index":
+								atomic.AddInt64(&r.indexBlock, 1)
+							case "filter":
+								atomic.AddInt64(&r.filterBlock, 1)
+							default:
+								panic("###")
+							}
+						}
+					}
+
 					atomic.AddInt64(&r.statSet, 1)
 					atomic.AddInt64(&r.statSize, int64(n.size))
 				}
 				n.mu.Unlock()
 				if r.cacher != nil {
-					r.cacher.Promote(n)
+					r.cacher.Promote(n, r)
 				}
 				return &Handle{unsafe.Pointer(n)}
 			}
@@ -752,6 +785,20 @@ func (n *Node) unRefExternal() {
 		} else {
 			n.r.delete(n)
 			atomic.AddInt64(&n.r.statDel, 1)
+			if n.r.BlockCache {
+				if g, ok := n.value.(Getter); ok {
+					switch g.GetType() {
+					case "data":
+						atomic.AddInt64(&n.r.dataBlock, -1)
+					case "index":
+						atomic.AddInt64(&n.r.indexBlock, -1)
+					case "filter":
+						atomic.AddInt64(&n.r.filterBlock, -1)
+					default:
+						panic("111")
+					}
+				}
+			}
 		}
 		n.r.mu.RUnlock()
 	}

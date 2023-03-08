@@ -486,6 +486,7 @@ func (p *versionStaging) finish(trivial bool) *version {
 					continue
 				}
 				if _, ok := scratch.added[t.fd.Num]; ok {
+					panic("?")
 					continue
 				}
 				nt = append(nt, t)

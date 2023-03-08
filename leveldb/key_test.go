@@ -13,6 +13,19 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/comparer"
 )
 
+func TestFF(t *testing.T) {
+	k1 := makeInternalKey(nil, []byte("a"), 1, keyTypeVal)
+	k1_2 := makeInternalKey(nil, []byte("a"), 2, keyTypeVal)
+	k1_delete := makeInternalKey(nil, []byte("a"), 3, keyTypeDel)
+	k1_delete_2 := makeInternalKey(nil, []byte("a"), 4, keyTypeDel)
+
+	t.Log(defaultIComparer.Compare(k1, k1_2))
+	t.Log(defaultIComparer.Compare(k1_2, k1_delete))
+	t.Log(defaultIComparer.Compare(k1, k1_delete))
+	t.Log(defaultIComparer.Compare(k1_delete, k1_delete_2))
+
+}
+
 var defaultIComparer = &iComparer{comparer.DefaultComparer}
 
 func ikey(key string, seq uint64, kt keyType) internalKey {
