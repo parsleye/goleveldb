@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/golang/snappy"
 
@@ -537,6 +538,8 @@ type Reader struct {
 	metaBH, indexBH, filterBH blockHandle
 	indexBlock                *block
 	filterBlock               *filterBlock
+
+	s *Stats
 }
 
 func (r *Reader) blockKind(bh blockHandle) string {
@@ -723,6 +726,8 @@ func (r *Reader) readFilterBlockCached(bh blockHandle, fillCache bool) (*filterB
 
 func (r *Reader) getIndexBlock(fillCache bool) (b *block, rel util.Releaser, err error) {
 	if r.indexBlock == nil {
+		t := time.Now()
+		defer func() { r.s.ReadIndexUse += time.Since(t).Seconds() }()
 		return r.readBlockCached(r.indexBH, true, fillCache, "index")
 	}
 	return r.indexBlock, util.NoopReleaser{}, nil
@@ -730,6 +735,8 @@ func (r *Reader) getIndexBlock(fillCache bool) (b *block, rel util.Releaser, err
 
 func (r *Reader) getFilterBlock(fillCache bool) (*filterBlock, util.Releaser, error) {
 	if r.filterBlock == nil {
+		t := time.Now()
+		defer func() { r.s.ReadIndexUse += time.Since(t).Seconds() }()
 		return r.readFilterBlockCached(r.filterBH, fillCache)
 	}
 	return r.filterBlock, util.NoopReleaser{}, nil
@@ -776,10 +783,12 @@ func (r *Reader) newBlockIter(b *block, bReleaser util.Releaser, slice *util.Ran
 }
 
 func (r *Reader) getDataIter(dataBH blockHandle, slice *util.Range, verifyChecksum, fillCache bool) iterator.Iterator {
+	t := time.Now()
 	b, rel, err := r.readBlockCached(dataBH, verifyChecksum, fillCache, "data")
 	if err != nil {
 		return iterator.NewEmptyIterator(err)
 	}
+	r.s.ReadDataUse += time.Since(t).Seconds()
 	return r.newBlockIter(b, rel, slice, false)
 }
 
@@ -1036,7 +1045,7 @@ func (r *Reader) Release() {
 // The fi, cache and bpool is optional and can be nil.
 //
 // The returned table reader instance is safe for concurrent use.
-func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.NamespaceGetter, bpool *util.BufferPool, o *opt.Options) (*Reader, error) {
+func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.NamespaceGetter, bpool *util.BufferPool, o *opt.Options, s *Stats) (*Reader, error) {
 	if f == nil {
 		return nil, errors.New("leveldb/table: nil file")
 	}
@@ -1049,6 +1058,7 @@ func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.Name
 		o:              o,
 		cmp:            o.GetComparer(),
 		verifyChecksum: o.GetStrict(opt.StrictBlockChecksum),
+		s:              s,
 	}
 
 	if size < footerLen {
@@ -1128,6 +1138,7 @@ func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.Name
 
 	// Cache index and filter block locally, since we don't have global cache.
 	if cache == nil {
+		t := time.Now()
 		r.indexBlock, err = r.readBlock(r.indexBH, true)
 		if err != nil {
 			if errors.IsCorrupted(err) {
@@ -1136,6 +1147,7 @@ func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.Name
 			}
 			return nil, err
 		}
+
 		if r.filter != nil {
 			r.filterBlock, err = r.readFilterBlock(r.filterBH)
 			if err != nil {
@@ -1147,6 +1159,7 @@ func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.Name
 				r.filter = nil
 			}
 		}
+		r.s.ReadIndexUse += time.Since(t).Seconds()
 	}
 
 	return r, nil

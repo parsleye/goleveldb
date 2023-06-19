@@ -174,7 +174,11 @@ func (ts *testingStorage) scanTable(fd storage.FileDesc, checksum bool) (corrupt
 	if checksum {
 		o.Strict = opt.StrictBlockChecksum | opt.StrictReader
 	}
+<<<<<<< HEAD
 	tr, err := table.NewReader(r, size, fd, nil, bpool, o)
+=======
+	tr, err := table.NewReader(r, size, fd, nil, bpool, o, nil, new(table.Stats))
+>>>>>>> 63a1448... feat(1): 1
 	if err != nil {
 		return false, err
 	}

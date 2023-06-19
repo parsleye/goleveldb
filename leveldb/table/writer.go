@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/golang/snappy"
 
@@ -167,6 +168,8 @@ type Writer struct {
 	scratch            [50]byte
 	comparerScratch    []byte
 	compressionScratch []byte
+
+	s *Stats
 }
 
 func (w *Writer) writeBlock(buf *util.Buffer, compression opt.Compression) (bh blockHandle, err error) {
@@ -230,6 +233,7 @@ func (w *Writer) flushPendingBH(key []byte) error {
 }
 
 func (w *Writer) finishBlock() error {
+	t := time.Now()
 	if err := w.dataBlock.finish(); err != nil {
 		return err
 	}
@@ -237,6 +241,7 @@ func (w *Writer) finishBlock() error {
 	if err != nil {
 		return err
 	}
+	w.s.WriteDataUse += time.Since(t).Seconds()
 	w.pendingBH = bh
 	// Reset the data block.
 	w.dataBlock.reset()
@@ -330,6 +335,7 @@ func (w *Writer) Close() error {
 		return err
 	}
 
+	t := time.Now()
 	// Write the filter block.
 	var filterBH blockHandle
 	if err := w.filterBlock.finish(); err != nil {
@@ -383,6 +389,7 @@ func (w *Writer) Close() error {
 	}
 	w.offset += footerLen
 
+	w.s.WriteIndexUse += time.Since(t).Seconds()
 	w.err = errors.New("leveldb/table: writer is closed")
 	return nil
 }
@@ -390,7 +397,7 @@ func (w *Writer) Close() error {
 // NewWriter creates a new initialized table writer for the file.
 //
 // Table writer is not safe for concurrent use.
-func NewWriter(f io.Writer, o *opt.Options, pool *util.BufferPool, size int) *Writer {
+func NewWriter(f io.Writer, o *opt.Options, pool *util.BufferPool, size int, s *Stats) *Writer {
 	var bufBytes []byte
 	if pool == nil {
 		bufBytes = make([]byte, size)
@@ -408,6 +415,7 @@ func NewWriter(f io.Writer, o *opt.Options, pool *util.BufferPool, size int) *Wr
 		comparerScratch: make([]byte, 0),
 		bpool:           pool,
 		dataBlock:       blockWriter{buf: *util.NewBuffer(bufBytes)},
+		s:               s,
 	}
 	// data block
 	w.dataBlock.restartInterval = o.GetBlockRestartInterval()

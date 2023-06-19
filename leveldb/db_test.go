@@ -36,6 +36,19 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
+func TestFFd(t *testing.T) {
+	db, err := OpenFile("test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 10000; i++ {
+		key := make([]byte, 520)
+		rand.Read(key)
+		db.Put(key, key, nil)
+	}
+	db.Close()
+}
+
 type cmp struct {
 }
 
