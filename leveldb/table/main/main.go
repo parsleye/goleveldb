@@ -27,11 +27,12 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	size := 2 * GiB
+	size := 1 * GiB
 	n := size / 520
 	defer func() { _ = db.Close() }()
 	switch f {
 	case 0:
+
 		t := time.Now()
 		// 4GB
 		for i := 0; i < n; i++ {
@@ -44,7 +45,7 @@ func main() {
 		fmt.Printf("write use %.2fs\n", time.Since(t).Seconds())
 	case 1:
 		t := time.Now()
-		s := 50 * MiB
+		s := 200 * MiB
 		n = s / 520
 		fmt.Printf("entry num: %d\n", n)
 		for i := 0; i < n; i++ {

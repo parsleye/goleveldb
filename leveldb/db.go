@@ -347,7 +347,7 @@ func recoverTable(s *session, o *opt.Options) error {
 		}()
 
 		// Copy entries.
-		tw := table.NewWriter(writer, nil, o, 0, nil)
+		tw := table.NewWriter(writer, nil, o, 0, nil, new(table.Stats))
 		for iter.Next() {
 			key := iter.Key()
 			if validInternalKey(key) {
@@ -398,7 +398,7 @@ func recoverTable(s *session, o *opt.Options) error {
 			tgoodKey, tcorruptedKey, tcorruptedBlock int
 			imin, imax                               []byte
 		)
-		tr, err := table.NewReader(reader, size, fd, nil, bpool, o, nil)
+		tr, err := table.NewReader(reader, size, fd, nil, bpool, o, nil, new(table.Stats))
 		if err != nil {
 			return err
 		}
@@ -1062,6 +1062,8 @@ func (db *DB) GetProperty(name string) (value string, err error) {
 			size += tables.size()
 		}
 		value = fmt.Sprintf("write amp: %.2f", (float64(db.s.stor.writes())/1048576.0)/float64(size/1048576.0))
+	case p == "table.status":
+		value = fmt.Sprintf("table stats: %s", v.s.tops.ts.String())
 	default:
 		err = ErrNotFound
 	}
@@ -1273,6 +1275,7 @@ func (db *DB) printStats() {
 		"leveldb.cachedblock",
 		"leveldb.openedtables",
 		"leveldb.writeamp",
+		"leveldb.table.status",
 	} {
 		s, _ := db.GetProperty(name)
 		db.s.logf(s)

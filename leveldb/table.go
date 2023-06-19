@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sort"
 	"sync/atomic"
+	"time"
 
 	"github.com/syndtr/goleveldb/leveldb/cache"
 	"github.com/syndtr/goleveldb/leveldb/iterator"
@@ -350,10 +351,12 @@ type tOps struct {
 	fileCache    *cache.Cache
 	blockCache   *cache.Cache
 	blockBuffer  *util.BufferPool
+	ts           *table.Stats
 }
 
 // Creates an empty table and returns table writer.
 func (t *tOps) create(tSize int) (*tWriter, error) {
+	start := time.Now()
 	fd := storage.FileDesc{Type: storage.TypeTable, Num: t.s.allocFileNum()}
 	fw, err := t.s.stor.Create(fd)
 	if err != nil {
@@ -365,13 +368,16 @@ func (t *tOps) create(tSize int) (*tWriter, error) {
 	if err1 != nil {
 		return nil, err1
 	}
+	t.ts.Open += 2
+	t.ts.OpenUse += time.Since(start).Seconds()
 	return &tWriter{
 		t:   t,
+		s:   t.ts,
 		fd:  fd,
 		mfd: mfd,
 		w:   fw,
 		mw:  mf,
-		tw:  table.NewWriter(fw, mf, t.s.o.Options, tSize, t.blockBuffer),
+		tw:  table.NewWriter(fw, mf, t.s.o.Options, tSize, t.blockBuffer, t.ts),
 	}, nil
 }
 
@@ -410,6 +416,7 @@ func (t *tOps) createFrom(src iterator.Iterator) (f *tFile, n int, err error) {
 // be released after use.
 func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
 	ch = t.fileCache.Get(0, uint64(f.fd.Num), func() (size int, value cache.Value) {
+		var start = time.Now()
 		var r storage.Reader
 		r, err = t.s.stor.Open(f.fd)
 		if err != nil {
@@ -423,6 +430,9 @@ func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
 		if err1 != nil {
 			return 0, nil
 		}
+		t.ts.Open += 2
+		t.ts.OpenUse += time.Since(start).Seconds()
+
 		//fmt.Printf("open %d\n", f.fd.Num)
 		var blockCache *cache.NamespaceGetter
 		if t.blockCache != nil {
@@ -430,7 +440,7 @@ func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
 		}
 
 		var tr *table.Reader
-		tr, err = table.NewReader(r, f.size, f.fd, blockCache, t.blockBuffer, t.s.o.Options, mr)
+		tr, err = table.NewReader(r, f.size, f.fd, blockCache, t.blockBuffer, t.s.o.Options, mr, t.ts)
 		if err != nil {
 			_ = r.Close()
 			return 0, nil
@@ -540,6 +550,7 @@ func newTableOps(s *session) *tOps {
 		fileCache:    cache.NewCache(fileCacher),
 		blockCache:   blockCache,
 		blockBuffer:  blockBuffer,
+		ts:           new(table.Stats),
 	}
 }
 
@@ -553,6 +564,8 @@ type tWriter struct {
 	tw      *table.Writer
 
 	first, last []byte
+
+	s *table.Stats
 }
 
 // Append key/value pair to the table.
