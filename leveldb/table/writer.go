@@ -146,8 +146,10 @@ func (w *filterWriter) generate() {
 
 // Writer is a table writer.
 type Writer struct {
-	writer io.Writer
-	err    error
+	writer     io.Writer
+	metaWriter io.Writer
+
+	err error
 	// Options
 	cmp         comparer.Comparer
 	filter      filter.Filter
@@ -160,7 +162,9 @@ type Writer struct {
 	filterBlock filterWriter
 	pendingBH   blockHandle
 	offset      uint64
-	nEntries    int
+	mOffset     uint64
+
+	nEntries int
 	// Scratch allocated enough for 5 uvarint. Block writer should not use
 	// first 20-bytes since it will be used to encode block handle, which
 	// then passed to the block writer itself.
@@ -169,7 +173,7 @@ type Writer struct {
 	compressionScratch []byte
 }
 
-func (w *Writer) writeBlock(buf *util.Buffer, compression opt.Compression) (bh blockHandle, err error) {
+func (w *Writer) makeFinalBuf(buf *util.Buffer, compression opt.Compression) []byte {
 	// Compress the buffer if necessary.
 	var b []byte
 	if compression == opt.SnappyCompression {
@@ -192,14 +196,7 @@ func (w *Writer) writeBlock(buf *util.Buffer, compression opt.Compression) (bh b
 	checksum := util.NewCRC(b[:n]).Value()
 	binary.LittleEndian.PutUint32(b[n:], checksum)
 
-	// Write the buffer to the file.
-	_, err = w.writer.Write(b)
-	if err != nil {
-		return
-	}
-	bh = blockHandle{w.offset, uint64(len(b) - blockTrailerLen)}
-	w.offset += uint64(len(b))
-	return
+	return b
 }
 
 func (w *Writer) flushPendingBH(key []byte) error {
@@ -233,11 +230,14 @@ func (w *Writer) finishBlock() error {
 	if err := w.dataBlock.finish(); err != nil {
 		return err
 	}
-	bh, err := w.writeBlock(&w.dataBlock.buf, w.compression)
+	buf := w.makeFinalBuf(&w.dataBlock.buf, w.compression)
+	_, err := w.writer.Write(buf)
 	if err != nil {
 		return err
 	}
-	w.pendingBH = bh
+	w.pendingBH = blockHandle{w.offset, uint64(len(buf) - blockTrailerLen)}
+	w.offset += uint64(len(buf))
+
 	// Reset the data block.
 	w.dataBlock.reset()
 	// Flush the filter block.
@@ -295,9 +295,14 @@ func (w *Writer) EntriesLen() int {
 	return w.nEntries
 }
 
-// BytesLen returns number of bytes written so far.
+// BytesLen returns number of data bytes written so far.
 func (w *Writer) BytesLen() int {
 	return int(w.offset)
+}
+
+// MetaSize returns number of meta bytes written so far.
+func (w *Writer) MetaSize() int {
+	return int(w.mOffset)
 }
 
 // Close will finalize the table. Calling Append is not possible
@@ -331,57 +336,52 @@ func (w *Writer) Close() error {
 	}
 
 	// Write the filter block.
-	var filterBH blockHandle
+	var (
+		filterBH blockHandle
+		indexBH  blockHandle
+	)
 	if err := w.filterBlock.finish(); err != nil {
 		return err
 	}
-	if buf := &w.filterBlock.buf; buf.Len() > 0 {
-		filterBH, w.err = w.writeBlock(buf, opt.NoCompression)
-		if w.err != nil {
-			return w.err
-		}
+	fbuf := w.makeFinalBuf(&w.filterBlock.buf, opt.NoCompression)
+	filterBH = blockHandle{
+		offset: headerLen,
+		length: uint64(len(fbuf)) - blockTrailerLen,
 	}
 
-	// Write the metaindex block.
-	if filterBH.length > 0 {
-		key := []byte("filter." + w.filter.Name())
-		n := encodeBlockHandle(w.scratch[:20], filterBH)
-		if err := w.dataBlock.append(key, w.scratch[:n]); err != nil {
-			return err
-		}
-	}
-	if err := w.dataBlock.finish(); err != nil {
-		return err
-	}
-	metaindexBH, err := w.writeBlock(&w.dataBlock.buf, w.compression)
-	if err != nil {
-		w.err = err
-		return w.err
-	}
-
-	// Write the index block.
 	if err := w.indexBlock.finish(); err != nil {
 		return err
 	}
-	indexBH, err := w.writeBlock(&w.indexBlock.buf, w.compression)
-	if err != nil {
-		w.err = err
-		return w.err
+	ibuf := w.makeFinalBuf(&w.indexBlock.buf, opt.SnappyCompression)
+	indexBH = blockHandle{
+		offset: filterBH.offset + filterBH.length + blockTrailerLen,
+		length: uint64(len(ibuf)) - blockTrailerLen,
 	}
 
-	// Write the table footer.
-	footer := w.scratch[:footerLen]
-	for i := range footer {
-		footer[i] = 0
+	header := w.scratch[:headerLen]
+	for i := range header {
+		header[i] = 0
 	}
-	n := encodeBlockHandle(footer, metaindexBH)
-	encodeBlockHandle(footer[n:], indexBH)
-	copy(footer[footerLen-len(magic):], magic)
-	if _, err := w.writer.Write(footer); err != nil {
+	n := encodeBlockHandle(header, filterBH)
+	encodeBlockHandle(header[n:], indexBH)
+
+	if _, err := w.metaWriter.Write(header); err != nil {
 		w.err = err
 		return w.err
 	}
-	w.offset += footerLen
+	w.mOffset = headerLen
+
+	if _, err := w.metaWriter.Write(fbuf); err != nil {
+		w.err = err
+		return w.err
+	}
+	w.mOffset += uint64(len(fbuf))
+
+	if _, err := w.metaWriter.Write(ibuf); err != nil {
+		w.err = err
+		return w.err
+	}
+	w.mOffset += uint64(len(ibuf))
 
 	w.err = errors.New("leveldb/table: writer is closed")
 	return nil
@@ -390,7 +390,7 @@ func (w *Writer) Close() error {
 // NewWriter creates a new initialized table writer for the file.
 //
 // Table writer is not safe for concurrent use.
-func NewWriter(f io.Writer, o *opt.Options, pool *util.BufferPool, size int) *Writer {
+func NewWriter(f io.Writer, mf io.Writer, o *opt.Options, size int, pool *util.BufferPool) *Writer {
 	var bufBytes []byte
 	if pool == nil {
 		bufBytes = make([]byte, size)
@@ -401,6 +401,7 @@ func NewWriter(f io.Writer, o *opt.Options, pool *util.BufferPool, size int) *Wr
 
 	w := &Writer{
 		writer:          f,
+		metaWriter:      mf,
 		cmp:             o.GetComparer(),
 		filter:          o.GetFilter(),
 		compression:     o.GetCompression(),

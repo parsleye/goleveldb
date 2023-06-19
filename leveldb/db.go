@@ -347,7 +347,7 @@ func recoverTable(s *session, o *opt.Options) error {
 		}()
 
 		// Copy entries.
-		tw := table.NewWriter(writer, o, nil, 0)
+		tw := table.NewWriter(writer, nil, o, 0, nil)
 		for iter.Next() {
 			key := iter.Key()
 			if validInternalKey(key) {
@@ -398,7 +398,7 @@ func recoverTable(s *session, o *opt.Options) error {
 			tgoodKey, tcorruptedKey, tcorruptedBlock int
 			imin, imax                               []byte
 		)
-		tr, err := table.NewReader(reader, size, fd, nil, bpool, o)
+		tr, err := table.NewReader(reader, size, fd, nil, bpool, o, nil)
 		if err != nil {
 			return err
 		}

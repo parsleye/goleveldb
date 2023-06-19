@@ -12,7 +12,7 @@ import (
 	"sync"
 )
 
-const typeShift = 4
+const typeShift = 5
 
 // Verify at compile-time that typeShift is large enough to cover all FileType
 // values by confirming that 0 == 0.

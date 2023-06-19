@@ -359,11 +359,19 @@ func (t *tOps) create(tSize int) (*tWriter, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	mfd := storage.FileDesc{Type: storage.TypeMeta, Num: fd.Num}
+	mf, err1 := t.s.stor.Create(mfd)
+	if err1 != nil {
+		return nil, err1
+	}
 	return &tWriter{
-		t:  t,
-		fd: fd,
-		w:  fw,
-		tw: table.NewWriter(fw, t.s.o.Options, t.blockBuffer, tSize),
+		t:   t,
+		fd:  fd,
+		mfd: mfd,
+		w:   fw,
+		mw:  mf,
+		tw:  table.NewWriter(fw, mf, t.s.o.Options, tSize, t.blockBuffer),
 	}, nil
 }
 
@@ -407,14 +415,22 @@ func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
 		if err != nil {
 			return 0, nil
 		}
-
+		mfd := storage.FileDesc{
+			Type: storage.TypeMeta,
+			Num:  f.fd.Num,
+		}
+		mr, err1 := t.s.stor.Open(mfd)
+		if err1 != nil {
+			return 0, nil
+		}
+		//fmt.Printf("open %d\n", f.fd.Num)
 		var blockCache *cache.NamespaceGetter
 		if t.blockCache != nil {
 			blockCache = &cache.NamespaceGetter{Cache: t.blockCache, NS: uint64(f.fd.Num)}
 		}
 
 		var tr *table.Reader
-		tr, err = table.NewReader(r, f.size, f.fd, blockCache, t.blockBuffer, t.s.o.Options)
+		tr, err = table.NewReader(r, f.size, f.fd, blockCache, t.blockBuffer, t.s.o.Options, mr)
 		if err != nil {
 			_ = r.Close()
 			return 0, nil
@@ -532,9 +548,9 @@ func newTableOps(s *session) *tOps {
 type tWriter struct {
 	t *tOps
 
-	fd storage.FileDesc
-	w  storage.Writer
-	tw *table.Writer
+	fd, mfd storage.FileDesc
+	w, mw   storage.Writer
+	tw      *table.Writer
 
 	first, last []byte
 }
@@ -561,6 +577,12 @@ func (w *tWriter) close() error {
 		}
 		w.w = nil
 	}
+	if w.mw != nil {
+		if err := w.mw.Close(); err != nil {
+			return err
+		}
+		w.mw = nil
+	}
 	return nil
 }
 
@@ -584,8 +606,12 @@ func (w *tWriter) finish() (f *tFile, err error) {
 		if err != nil {
 			return
 		}
+		err = w.mw.Sync()
+		if err != nil {
+			return
+		}
 	}
-	f = newTableFile(w.fd, int64(w.tw.BytesLen()), internalKey(w.first), internalKey(w.last))
+	f = newTableFile(w.fd, int64(w.tw.BytesLen()), w.first, w.last)
 	return
 }
 
@@ -598,6 +624,9 @@ func (w *tWriter) drop() error {
 	w.first = nil
 	w.last = nil
 	if err := w.t.s.stor.Remove(w.fd); err != nil {
+		return err
+	}
+	if err := w.t.s.stor.Remove(w.mfd); err != nil {
 		return err
 	}
 	w.t.s.reuseFileNum(w.fd.Num)

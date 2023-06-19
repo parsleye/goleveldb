@@ -144,8 +144,8 @@ NOTE: All fixed-length integer are little-endian.
 const (
 	blockTrailerLen = 5
 	footerLen       = 48
-
-	magic = "\x57\xfb\x80\x8b\x24\x75\x47\xdb"
+	headerLen       = binary.MaxVarintLen64 * 4
+	magic           = "\x57\xfb\x80\x8b\x24\x75\x47\xdb"
 
 	// The block type gives the per-block compression format.
 	// These constants are part of the file format and should not be changed.

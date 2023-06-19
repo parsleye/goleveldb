@@ -22,8 +22,9 @@ const (
 	TypeJournal
 	TypeTable
 	TypeTemp
+	TypeMeta
 
-	TypeAll = TypeManifest | TypeJournal | TypeTable | TypeTemp
+	TypeAll = TypeManifest | TypeJournal | TypeTable | TypeTemp | TypeMeta
 )
 
 func (t FileType) String() string {
@@ -36,6 +37,8 @@ func (t FileType) String() string {
 		return "table"
 	case TypeTemp:
 		return "temp"
+	case TypeMeta:
+		return "meta"
 	}
 	return fmt.Sprintf("<unknown:%d>", t)
 }
@@ -113,6 +116,8 @@ func (fd FileDesc) String() string {
 		return fmt.Sprintf("%06d.ldb", fd.Num)
 	case TypeTemp:
 		return fmt.Sprintf("%06d.tmp", fd.Num)
+	case TypeMeta:
+		return fmt.Sprintf("%06d.idx", fd.Num)
 	default:
 		return fmt.Sprintf("%#x-%d", fd.Type, fd.Num)
 	}
@@ -130,6 +135,7 @@ func FileDescOk(fd FileDesc) bool {
 	case TypeJournal:
 	case TypeTable:
 	case TypeTemp:
+	case TypeMeta:
 	default:
 		return false
 	}

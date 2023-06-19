@@ -628,6 +628,8 @@ func fsGenName(fd FileDesc) string {
 		return fmt.Sprintf("%06d.ldb", fd.Num)
 	case TypeTemp:
 		return fmt.Sprintf("%06d.tmp", fd.Num)
+	case TypeMeta:
+		return fmt.Sprintf("%06d.idx", fd.Num)
 	default:
 		panic("invalid file type")
 	}

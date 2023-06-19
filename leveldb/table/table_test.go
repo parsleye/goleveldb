@@ -47,7 +47,7 @@ var _ = testutil.Defer(func() {
 			)
 
 			// Building the table.
-			tw := NewWriter(buf, o, nil, 0)
+			tw := NewWriter(buf, nil, o, 0, nil)
 			err := tw.Append([]byte("k01"), []byte("hello"))
 			Expect(err).ShouldNot(HaveOccurred())
 			err = tw.Append([]byte("k02"), []byte("hello2"))
@@ -68,7 +68,7 @@ var _ = testutil.Defer(func() {
 			It("Should be able to approximate offset of a key correctly", func() {
 				Expect(err).ShouldNot(HaveOccurred())
 
-				tr, err := NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()), storage.FileDesc{}, nil, nil, o)
+				tr, err := NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()), storage.FileDesc{}, nil, nil, o, nil)
 				Expect(err).ShouldNot(HaveOccurred())
 				CheckOffset := func(key string, expect, threshold int) {
 					offset, err := tr.OffsetOf([]byte(key))
@@ -98,14 +98,14 @@ var _ = testutil.Defer(func() {
 				buf := &bytes.Buffer{}
 
 				// Building the table.
-				tw := NewWriter(buf, o, nil, 0)
+				tw := NewWriter(buf, nil, o, 0, nil)
 				kv.Iterate(func(i int, key, value []byte) {
 					Expect(tw.Append(key, value)).ShouldNot(HaveOccurred())
 				})
 				tw.Close()
 
 				// Opening the table.
-				tr, _ := NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()), storage.FileDesc{}, nil, nil, o)
+				tr, _ := NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()), storage.FileDesc{}, nil, nil, o, nil)
 				return tableWrapper{tr}
 			}
 			Test := func(kv *testutil.KeyValue, body func(r *Reader)) func() {
@@ -121,7 +121,7 @@ var _ = testutil.Defer(func() {
 			testutil.AllKeyValueTesting(nil, Build, nil, nil)
 			Describe("with one key per block", Test(testutil.KeyValue_Generate(nil, 9, 1, 1, 10, 512, 512), func(r *Reader) {
 				It("should have correct blocks number", func() {
-					indexBlock, err := r.readBlock(r.indexBH, true)
+					indexBlock, err := r.readBlock(r.indexBH, nil, true)
 					Expect(err).To(BeNil())
 					Expect(indexBlock.restartsLen).Should(Equal(9))
 				})
