@@ -420,6 +420,7 @@ func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
 		var r storage.Reader
 		r, err = t.s.stor.Open(f.fd)
 		if err != nil {
+			fmt.Println(err)
 			return 0, nil
 		}
 		mfd := storage.FileDesc{
@@ -428,6 +429,7 @@ func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
 		}
 		mr, err1 := t.s.stor.Open(mfd)
 		if err1 != nil {
+			fmt.Println(err1)
 			return 0, nil
 		}
 		t.ts.Open += 2
