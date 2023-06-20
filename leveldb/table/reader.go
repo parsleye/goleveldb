@@ -1029,6 +1029,9 @@ func (r *Reader) Release() {
 	if closer, ok := r.reader.(io.Closer); ok {
 		closer.Close()
 	}
+	if closer, ok := r.mReader.(io.Closer); ok {
+		closer.Close()
+	}
 	if r.indexBlock != nil {
 		r.indexBlock.Release()
 		r.indexBlock = nil

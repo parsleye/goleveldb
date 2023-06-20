@@ -430,6 +430,7 @@ func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
 		mr, err1 := t.s.stor.Open(mfd)
 		if err1 != nil {
 			fmt.Println(err1)
+			_ = r.Close()
 			return 0, nil
 		}
 		t.ts.Open += 2
@@ -445,6 +446,7 @@ func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
 		tr, err = table.NewReader(r, f.size, f.fd, blockCache, t.blockBuffer, t.s.o.Options, mr, t.ts)
 		if err != nil {
 			_ = r.Close()
+			_ = mr.Close()
 			return 0, nil
 		}
 		return 1, tr
