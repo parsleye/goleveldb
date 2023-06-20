@@ -449,6 +449,7 @@ func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
 
 	})
 	if ch == nil && err == nil {
+		fmt.Println("##############")
 		err = ErrClosed
 	}
 	return
