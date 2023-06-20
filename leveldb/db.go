@@ -179,7 +179,7 @@ func openDB(s *session) (*DB, error) {
 
 	s.logf("db@open done T·%v", time.Since(start))
 
-	runtime.SetFinalizer(db, (*DB).Close)
+	//runtime.SetFinalizer(db, (*DB).Close)
 	return db, nil
 }
 
