@@ -12,6 +12,10 @@ type iStorage struct {
 	iotime uint64
 }
 
+func (c *iStorage) OpenAsync(req storage.ReaderReq) {
+	c.Storage.(storage.AsyncStorage).OpenAsync(req)
+}
+
 func (c *iStorage) Open(fd storage.FileDesc) (storage.Reader, error) {
 	r, err := c.Storage.Open(fd)
 	return &iStorageReader{r, c}, err

@@ -177,22 +177,49 @@ type Writer struct {
 }
 
 func (w *Writer) makeFinalBuf(buf *util.Buffer, compression opt.Compression) []byte {
-	// Compress the buffer if necessary.
 	var b []byte
-	if compression == opt.SnappyCompression {
-		// Allocate scratch enough for compression and block trailer.
+	switch compression {
+	case opt.SnappyCompression:
+		// Compress the buffer if necessary, discarding the result if the improvement isn't at
+		// least 12.5%.
 		if n := snappy.MaxEncodedLen(buf.Len()) + blockTrailerLen; len(w.compressionScratch) < n {
 			w.compressionScratch = make([]byte, n)
 		}
 		compressed := snappy.Encode(w.compressionScratch, buf.Bytes())
 		n := len(compressed)
-		b = compressed[:n+blockTrailerLen]
-		b[n] = blockTypeSnappyCompression
-	} else {
+		if n < buf.Len()-buf.Len()/8 {
+			b = compressed[:n+blockTrailerLen]
+			b[n] = blockTypeSnappyCompression
+		} else {
+			tmp := buf.Alloc(blockTrailerLen)
+			tmp[0] = blockTypeNoCompression
+			b = buf.Bytes()
+		}
+	default:
 		tmp := buf.Alloc(blockTrailerLen)
 		tmp[0] = blockTypeNoCompression
 		b = buf.Bytes()
 	}
+	// Compress the buffer if necessary.
+	//var b []byte
+	//if compression == opt.SnappyCompression {
+	//	// Allocate scratch enough for compression and block trailer.
+	//	if n := snappy.MaxEncodedLen(buf.Len()) + blockTrailerLen; len(w.compressionScratch) < n {
+	//		w.compressionScratch = make([]byte, n)
+	//	}
+	//	compressed := snappy.Encode(w.compressionScratch, buf.Bytes())
+	//	n := len(compressed)
+	//	if n < len(b)-len(b)/8 {
+	//
+	//	} else {
+	//		b = compressed[:n+blockTrailerLen]
+	//		b[n] = blockTypeSnappyCompression
+	//	}
+	//} else {
+	//	tmp := buf.Alloc(blockTrailerLen)
+	//	tmp[0] = blockTypeNoCompression
+	//	b = buf.Bytes()
+	//}
 
 	// Calculate the checksum.
 	n := len(b) - 4

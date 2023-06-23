@@ -414,25 +414,43 @@ func (t *tOps) createFrom(src iterator.Iterator) (f *tFile, n int, err error) {
 
 // Opens table. It returns a cache handle, which should
 // be released after use.
-func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
+func (t *tOps) open(f *tFile, noFilter bool) (ch *cache.Handle, err error) {
 	ch = t.fileCache.Get(0, uint64(f.fd.Num), func() (size int, value cache.Value) {
 		var start = time.Now()
-		var r storage.Reader
-		r, err = t.s.stor.Open(f.fd)
-		if err != nil {
-			fmt.Println(err)
-			return 0, nil
+		r1 := storage.ReaderReq{
+			Reader: make(chan storage.Reader, 1),
+			Fd:     f.fd,
 		}
-		mfd := storage.FileDesc{
-			Type: storage.TypeMeta,
-			Num:  f.fd.Num,
+		r2 := storage.ReaderReq{
+			Reader: make(chan storage.Reader, 1),
+			Fd: storage.FileDesc{
+				Type: storage.TypeMeta,
+				Num:  f.fd.Num,
+			},
 		}
-		mr, err1 := t.s.stor.Open(mfd)
-		if err1 != nil {
-			fmt.Println(err1)
-			_ = r.Close()
-			return 0, nil
+		t.s.stor.OpenAsync(r1)
+		t.s.stor.OpenAsync(r2)
+		r := <-r1.Reader
+		mr := <-r2.Reader
+		if r == nil || mr == nil {
+			panic("?")
 		}
+		//var r storage.Reader
+		//r, err = t.s.stor.Open(f.fd)
+		//if err != nil {
+		//	fmt.Println(err)
+		//	return 0, nil
+		//}
+		//mfd := storage.FileDesc{
+		//	Type: storage.TypeMeta,
+		//	Num:  f.fd.Num,
+		//}
+		//mr, err1 := t.s.stor.Open(mfd)
+		//if err1 != nil {
+		//	fmt.Println(err1)
+		//	_ = r.Close()
+		//	return 0, nil
+		//}
 		t.ts.Open += 2
 		t.ts.OpenUse += time.Since(start).Seconds()
 
@@ -443,7 +461,7 @@ func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
 		}
 
 		var tr *table.Reader
-		tr, err = table.NewReader(r, f.size, f.fd, blockCache, t.blockBuffer, t.s.o.Options, mr, t.ts)
+		tr, err = table.NewReader(r, f.size, f.fd, blockCache, t.blockBuffer, t.s.o.Options, mr, t.ts, noFilter)
 		if err != nil {
 			_ = r.Close()
 			_ = mr.Close()
@@ -461,7 +479,7 @@ func (t *tOps) open(f *tFile) (ch *cache.Handle, err error) {
 // Finds key/value pair whose key is greater than or equal to the
 // given key.
 func (t *tOps) find(f *tFile, key []byte, ro *opt.ReadOptions) (rkey, rvalue []byte, err error) {
-	ch, err := t.open(f)
+	ch, err := t.open(f, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -471,7 +489,7 @@ func (t *tOps) find(f *tFile, key []byte, ro *opt.ReadOptions) (rkey, rvalue []b
 
 // Finds key that is greater than or equal to the given key.
 func (t *tOps) findKey(f *tFile, key []byte, ro *opt.ReadOptions) (rkey []byte, err error) {
-	ch, err := t.open(f)
+	ch, err := t.open(f, false)
 	if err != nil {
 		return nil, err
 	}
@@ -481,7 +499,7 @@ func (t *tOps) findKey(f *tFile, key []byte, ro *opt.ReadOptions) (rkey []byte, 
 
 // Returns approximate offset of the given key.
 func (t *tOps) offsetOf(f *tFile, key []byte) (offset int64, err error) {
-	ch, err := t.open(f)
+	ch, err := t.open(f, false)
 	if err != nil {
 		return
 	}
@@ -491,7 +509,7 @@ func (t *tOps) offsetOf(f *tFile, key []byte) (offset int64, err error) {
 
 // Creates an iterator from the given table.
 func (t *tOps) newIterator(f *tFile, slice *util.Range, ro *opt.ReadOptions) iterator.Iterator {
-	ch, err := t.open(f)
+	ch, err := t.open(f, true)
 	if err != nil {
 		return iterator.NewEmptyIterator(err)
 	}

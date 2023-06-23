@@ -68,7 +68,7 @@ var _ = testutil.Defer(func() {
 			It("Should be able to approximate offset of a key correctly", func() {
 				Expect(err).ShouldNot(HaveOccurred())
 
-				tr, err := NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()), storage.FileDesc{}, nil, nil, o, nil, new(Stats))
+				tr, err := NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()), storage.FileDesc{}, nil, nil, o, nil, new(Stats), false)
 				Expect(err).ShouldNot(HaveOccurred())
 				CheckOffset := func(key string, expect, threshold int) {
 					offset, err := tr.OffsetOf([]byte(key))
@@ -105,7 +105,7 @@ var _ = testutil.Defer(func() {
 				tw.Close()
 
 				// Opening the table.
-				tr, _ := NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()), storage.FileDesc{}, nil, nil, o, nil, new(Stats))
+				tr, _ := NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()), storage.FileDesc{}, nil, nil, o, nil, new(Stats), false)
 				return tableWrapper{tr}
 			}
 			Test := func(kv *testutil.KeyValue, body func(r *Reader)) func() {

@@ -398,7 +398,7 @@ func recoverTable(s *session, o *opt.Options) error {
 			tgoodKey, tcorruptedKey, tcorruptedBlock int
 			imin, imax                               []byte
 		)
-		tr, err := table.NewReader(reader, size, fd, nil, bpool, o, nil, new(table.Stats))
+		tr, err := table.NewReader(reader, size, fd, nil, bpool, o, nil, new(table.Stats), false)
 		if err != nil {
 			return err
 		}

@@ -587,7 +587,6 @@ func (r *Reader) readRawBlock(bh blockHandle, reader io.ReaderAt, verifyChecksum
 		checksum1 := util.NewCRC(data[:n]).Value()
 		if checksum0 != checksum1 {
 			r.bpool.Put(data)
-			panic(r.newErrCorruptedBH(bh, fmt.Sprintf("checksum mismatch, want=%#x got=%#x", checksum0, checksum1)))
 			return nil, r.newErrCorruptedBH(bh, fmt.Sprintf("checksum mismatch, want=%#x got=%#x", checksum0, checksum1))
 		}
 	}
@@ -739,7 +738,9 @@ func (r *Reader) getFilterBlock(fillCache bool) (*filterBlock, util.Releaser, er
 	if r.filterBlock == nil {
 		t := time.Now()
 		defer func() { r.s.ReadIndexUse += time.Since(t).Seconds() }()
-		return r.readFilterBlockCached(r.filterBH, fillCache)
+		fb, rl, err := r.readFilterBlockCached(r.filterBH, fillCache)
+		r.filterBlock = fb
+		return fb, rl, err
 	}
 	return r.filterBlock, util.NoopReleaser{}, nil
 }
@@ -828,8 +829,8 @@ func (r *Reader) NewIterator(slice *util.Range, ro *opt.ReadOptions) iterator.It
 		return iterator.NewEmptyIterator(r.err)
 	}
 
-	fillCache := !ro.GetDontFillCache()
-	indexBlock, rel, err := r.getIndexBlock(fillCache)
+	//fillCache := !ro.GetDontFillCache()
+	indexBlock, rel, err := r.getIndexBlock(false)
 	if err != nil {
 		return iterator.NewEmptyIterator(err)
 	}
@@ -851,7 +852,7 @@ func (r *Reader) find(key []byte, filtered bool, ro *opt.ReadOptions, noValue bo
 		return
 	}
 
-	indexBlock, rel, err := r.getIndexBlock(true)
+	indexBlock, rel, err := r.getIndexBlock(false)
 	if err != nil {
 		return
 	}
@@ -875,7 +876,7 @@ func (r *Reader) find(key []byte, filtered bool, ro *opt.ReadOptions, noValue bo
 
 	// The filter should only used for exact match.
 	if filtered && r.filter != nil {
-		filterBlock, frel, ferr := r.getFilterBlock(true)
+		filterBlock, frel, ferr := r.getFilterBlock(false)
 		if ferr == nil {
 			if !filterBlock.contains(r.filter, dataBH.offset, key) {
 				frel.Release()
@@ -1050,7 +1051,7 @@ func (r *Reader) Release() {
 // The fi, cache and bpool is optional and can be nil.
 //
 // The returned table reader instance is safe for concurrent use.
-func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.NamespaceGetter, bpool *util.BufferPool, o *opt.Options, mf io.ReaderAt, s *Stats) (*Reader, error) {
+func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.NamespaceGetter, bpool *util.BufferPool, o *opt.Options, mf io.ReaderAt, s *Stats, noFilter bool) (*Reader, error) {
 	if f == nil {
 		return nil, errors.New("leveldb/table: nil file")
 	}
@@ -1101,78 +1102,32 @@ func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.Name
 		return r, nil
 	}
 
-	//fmt.Printf("filter bh %d: %d\n", r.filterBH.offset, r.filterBH.length)
-	//fmt.Printf("index bh %d: %d\n", r.indexBH.offset, r.indexBH.length)
-	// Read metaindex block.
-	//metaBlock, err := r.readBlock(r.metaBH, true)
-	//if err != nil {
-	//	if errors.IsCorrupted(err) {
-	//		r.err = err
-	//		return r, nil
-	//	}
-	//	return nil, err
-	//}
-
 	// Set data end.
 	r.dataEnd = int64(r.metaBH.offset) // todo: useless?
 
-	// Read metaindex.
-	//metaIter := r.newBlockIter(metaBlock, nil, nil, true)
-	//for metaIter.Next() {
-	//	key := string(metaIter.Key())
-	//	if !strings.HasPrefix(key, "filter.") {
-	//		continue
-	//	}
-	//	fn := key[7:]
-	//	if f0 := o.GetFilter(); f0 != nil && f0.Name() == fn {
-	//		r.filter = f0
-	//	} else {
-	//		for _, f0 := range o.GetAltFilters() {
-	//			if f0.Name() == fn {
-	//				r.filter = f0
-	//				break
-	//			}
-	//		}
-	//	}
-	//	if r.filter != nil {
-	//		filterBH, n := decodeBlockHandle(metaIter.Value())
-	//		if n == 0 {
-	//			continue
-	//		}
-	//		r.filterBH = filterBH
-	//		// Update data end.
-	//		r.dataEnd = int64(filterBH.offset)
-	//		break
-	//	}
-	//}
-	//metaIter.Release()
-	//metaBlock.Release()
-
 	// Cache index and filter block locally, since we don't have global cache.
-	if cache == nil {
-		t1 := time.Now()
-		r.indexBlock, err = r.readBlock(r.indexBH, r.mReader, true)
-		if err != nil {
-			if errors.IsCorrupted(err) {
-				r.err = err
-				return r, nil
-			}
-			return nil, err
+	t1 := time.Now()
+	r.indexBlock, err = r.readBlock(r.indexBH, r.mReader, true)
+	if err != nil {
+		if errors.IsCorrupted(err) {
+			r.err = err
+			return r, nil
 		}
-
-		if r.filter != nil {
-			r.filterBlock, err = r.readFilterBlock(r.filterBH)
-			if err != nil {
-				if !errors.IsCorrupted(err) {
-					return nil, err
-				}
-
-				// Don't use filter then.
-				r.filter = nil
-			}
-		}
-		r.s.ReadIndexUse += time.Since(t1).Seconds()
+		return nil, err
 	}
+
+	if r.filter != nil && !noFilter {
+		r.filterBlock, err = r.readFilterBlock(r.filterBH)
+		if err != nil {
+			if !errors.IsCorrupted(err) {
+				return nil, err
+			}
+
+			// Don't use filter then.
+			r.filter = nil
+		}
+	}
+	r.s.ReadIndexUse += time.Since(t1).Seconds()
 
 	return r, nil
 }

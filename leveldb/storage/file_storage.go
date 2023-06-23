@@ -84,6 +84,9 @@ type fileStorage struct {
 	// Opened file counter; if open < 0 means closed.
 	open int
 	day  int
+
+	openCh  chan ReaderReq
+	closeCh chan struct{}
 }
 
 // OpenFile returns a new filesystem-backed storage implementation with the given
@@ -139,9 +142,30 @@ func OpenFile(path string, readOnly bool) (Storage, error) {
 		flock:    flock,
 		logw:     logw,
 		logSize:  logSize,
+		openCh:   make(chan ReaderReq),
+		closeCh:  make(chan struct{}),
 	}
+	go fs.opening()
+	go fs.opening()
 	runtime.SetFinalizer(fs, (*fileStorage).Close)
 	return fs, nil
+}
+
+func (fs *fileStorage) opening() {
+	for {
+		select {
+		case req := <-fs.openCh:
+			of, err := os.OpenFile(filepath.Join(fs.path, fsGenName(req.Fd)), os.O_RDONLY, 0)
+			if err != nil {
+				req.Reader <- nil
+				continue
+			}
+			fs.open++
+			req.Reader <- &fileWrap{File: of, fs: fs, fd: req.Fd}
+		case <-fs.closeCh:
+			return
+		}
+	}
 }
 
 func (fs *fileStorage) Lock() (Locker, error) {
@@ -468,6 +492,18 @@ func (fs *fileStorage) List(ft FileType) (fds []FileDesc, err error) {
 		}
 	}
 	return
+}
+
+type AsyncStorage interface {
+	OpenAsync(req ReaderReq)
+}
+
+func (fs *fileStorage) OpenAsync(req ReaderReq) {
+	fs.openCh <- req
+}
+
+func (fs *fileStorage) CreateAsync(req WriterReq) {
+
 }
 
 func (fs *fileStorage) Open(fd FileDesc) (Reader, error) {

@@ -106,6 +106,16 @@ type FileDesc struct {
 	Num  int64
 }
 
+type ReaderReq struct {
+	Reader chan Reader
+	Fd     FileDesc
+}
+
+type WriterReq struct {
+	Writer chan Writer
+	Fd     FileDesc
+}
+
 func (fd FileDesc) String() string {
 	switch fd.Type {
 	case TypeManifest:
