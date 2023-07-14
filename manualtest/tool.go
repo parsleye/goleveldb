@@ -41,15 +41,15 @@ func max(a, b int) int {
 
 const wild = math.MaxInt64
 
-func buildTree(nums []int, i int) *TreeNode {
-	if i >= len(nums) || nums[i] == wild {
-		return nil
-	}
-	t := &TreeNode{Val: nums[i]}
-	t.Left = buildTree(nums, 2*i+1)
-	t.Right = buildTree(nums, 2*i+2)
-	return t
-}
+//func buildTree(nums []int, i int) *TreeNode {
+//	if i >= len(nums) || nums[i] == wild {
+//		return nil
+//	}
+//	t := &TreeNode{Val: nums[i]}
+//	t.Left = buildTree(nums, 2*i+1)
+//	t.Right = buildTree(nums, 2*i+2)
+//	return t
+//}
 
 func buildList(nums []int) *ListNode {
 	head := &ListNode{Val: nums[0]}
